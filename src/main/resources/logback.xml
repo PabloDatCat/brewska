@@ -1,0 +1,9 @@
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder><pattern>%d{HH:mm:ss} %-5level %logger{36} - %msg%n</pattern></encoder>
+    </appender>
+    <!-- Dependency diagnostics may include JDBC URLs or SQL; own logs use safe types only. -->
+    <logger name="com.zaxxer.hikari" level="OFF"/>
+    <logger name="org.flywaydb" level="OFF"/>
+    <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+</configuration>
