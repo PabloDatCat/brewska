@@ -1,6 +1,6 @@
 # Coffee Journal
 
-A local Kotlin/JVM 21 backend for coffee lots and repeat purchases. Ktor 3.6.0, Kotlin 2.3.21, PostgreSQL 17, direct JDBC, HikariCP and Flyway. One roaster and coffee lot can have any number of purchases; a purchase never changes the coffee description or earlier purchases.
+A local Kotlin/JVM 21 backend for coffee lots and repeat purchases. Ktor 3.6.0, Kotlin 2.4.21, PostgreSQL 17, direct JDBC, HikariCP and Flyway. One roaster and coffee lot can have any number of purchases; a purchase never changes the coffee description or earlier purchases.
 
 ## Run locally
 
@@ -8,7 +8,7 @@ Install JDK 21, Docker with Compose, curl and Python 3. Start Docker, then from 
 
 ```sh
 cp .env.example .env
-# Edit .env if you need different local values.
+# Optionally uncomment overrides in .env; defaults are in application.conf.
 set -a
 . ./.env
 set +a
@@ -23,6 +23,8 @@ The server listens at `http://127.0.0.1:8080`. In another terminal:
 ./scripts/smoke.sh
 ```
 
+Interactive API docs are available at [`http://127.0.0.1:8080/swagger`](http://127.0.0.1:8080/swagger). OpenAPI metadata and request/response schemas are generated from the Ktor routes and Kotlin serialization DTOs; operation descriptions live in KDoc comments beside each route.
+
 The script creates a roaster, one mixed-origin lot and two purchases. It checks normalized replay, conflicting retry, preserved lot characteristics and history order. Each run creates separate demo records. Set `BASE_URL` when changing the port.
 
 Stop the server with Ctrl-C. Restarting the same executable retains all PostgreSQL data. `docker compose stop` retains the named database volume; `docker compose down -v` deletes it. To verify persistence, use the `COFFEE_LOT_ID` printed by smoke after restarting:
@@ -33,18 +35,37 @@ curl -fsS "http://127.0.0.1:8080/api/coffee-lots/$COFFEE_LOT_ID/purchases"
 
 ## Configuration
 
-The executable reads environment variables; it does not automatically load `.env`. Compose reads `.env` for its database password. Application and database passwords must match. All defaults are in `.env.example`.
+Defaults live in [`src/main/resources/application.conf`](src/main/resources/application.conf), packaged with the application. Startup loads HOCON with Typesafe `ConfigFactory.load()` and validates the typed settings before opening the database. The existing environment variables override the corresponding file values through `${?ENV}` substitutions:
 
-| Variable | Default / supported values |
-| --- | --- |
-| `HOST` | `127.0.0.1` only |
-| `PORT` | `8080`, integer 1–65535 |
-| `DATABASE_URL` | `jdbc:postgresql://127.0.0.1:5432/coffee_journal` |
-| `DB_USER` | `coffee_journal` |
-| `DB_PASSWORD` | `local-coffee-journal` (local development) |
-| `OWNER_ID` | `00000000-0000-0000-0000-000000000001`, stable UUID |
-| `DB_POOL_SIZE` | `4`, range 1–4 |
-| `DB_PARALLELISM` | `4`, range 1–4 |
+| HOCON property | Environment override | Default / supported values |
+| --- | --- | --- |
+| `ktor.deployment.host` | `HOST` | `127.0.0.1` only |
+| `ktor.deployment.port` | `PORT` | `8080`, integer 1–65535 |
+| `database.url` | `DATABASE_URL` | `jdbc:postgresql://127.0.0.1:5432/coffee_journal` |
+| `database.user` | `DB_USER` | `coffee_journal` |
+| `database.password` | `DB_PASSWORD` | `local-coffee-journal` (local development) |
+| `journal.ownerId` | `OWNER_ID` | `00000000-0000-0000-0000-000000000001`, stable UUID |
+| `database.poolSize` | `DB_POOL_SIZE` | `4`, range 1–4 |
+| `database.parallelism` | `DB_PARALLELISM` | `4`, range 1–4 |
+
+For example, run on another local port without changing the file:
+
+```sh
+PORT=9090 ./build/install/coffee-journal/bin/coffee-journal
+```
+
+The executable does not automatically load `.env`. `.env.example` contains commented examples of optional environment overrides; uncomment only the values you want and export them with `set -a; . ./.env; set +a` as shown above. Active overrides take precedence over the matching bundled file values. Compose reads `.env` for its database password. If you override `DB_PASSWORD`, export the same value for the application and recreate the database service with matching credentials; changing an existing PostgreSQL volume's password requires updating the database role too.
+
+To use an external HOCON file without rebuilding, copy the complete configuration, edit it and pass the JVM property through the installed launcher's `JAVA_OPTS`:
+
+```sh
+cp src/main/resources/application.conf /tmp/coffee-journal.conf
+# Edit /tmp/coffee-journal.conf.
+JAVA_OPTS="-Dconfig.file=/tmp/coffee-journal.conf" \
+  ./build/install/coffee-journal/bin/coffee-journal
+```
+
+`-Dconfig.file` replaces bundled `application.conf`, so the external file must provide all properties in the table. Keep its `${?ENV}` lines if you want the same environment overrides. Standard JVM system properties such as `-Dktor.deployment.port=9090` take priority over file settings. After editing the bundled resource itself, rebuild with `./gradlew installDist`.
 
 Keep `OWNER_ID` constant across restarts to read the same collection. The server chooses the owner and rejects client owner fields. Connection acquisition and PostgreSQL statement timeouts are 5 seconds. Transactions stay on the bounded database executor and do not suspend internally. Pools and executor close when the application stops.
 

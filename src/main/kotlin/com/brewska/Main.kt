@@ -4,6 +4,8 @@ import com.brewska.catalog.JdbcCatalog
 import com.brewska.collection.JdbcCollection
 import com.brewska.config.AppConfig
 import com.brewska.database.Database
+import com.typesafe.config.ConfigFactory
+import io.ktor.server.config.HoconApplicationConfig
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import org.slf4j.LoggerFactory
@@ -12,7 +14,7 @@ import kotlin.system.exitProcess
 fun main() {
     val logger = LoggerFactory.getLogger("CoffeeJournal")
     try {
-        val config = AppConfig.fromEnvironment(System.getenv())
+        val config = AppConfig.fromConfig(HoconApplicationConfig(ConfigFactory.load()))
         Database(config).use { database ->
             val catalog = JdbcCatalog(database)
             val collection = JdbcCollection(database, catalog)

@@ -4,6 +4,7 @@ import com.brewska.database.Database
 import com.brewska.database.query
 import com.brewska.catalog.LotAvailability
 import com.brewska.domain.IdempotencyConflict
+import com.brewska.domain.NotFound
 import java.sql.ResultSet
 import java.time.LocalDate
 import java.util.UUID
@@ -34,6 +35,13 @@ class JdbcCollection(private val database: Database, private val lots: LotAvaila
         lots.requireAvailable(connection, owner, lotId)
         connection.query("SELECT * FROM purchases WHERE owner_id = ? AND coffee_lot_id = ? ORDER BY purchased_on DESC, id ASC",
             arrayOf<Any?>(owner, lotId), ::purchase)
+    }
+    override suspend fun deletePurchase(owner: UUID, lotId: UUID, purchaseId: UUID) = database.transaction { connection ->
+        lots.requireAvailable(connection, owner, lotId)
+        connection.prepareStatement("DELETE FROM purchases WHERE id = ? AND owner_id = ? AND coffee_lot_id = ?").use {
+            it.setObject(1, purchaseId); it.setObject(2, owner); it.setObject(3, lotId)
+            if (it.executeUpdate() == 0) throw NotFound()
+        }
     }
     private fun purchase(rows: ResultSet): Purchase = Purchase(rows.getObject("id", UUID::class.java),
         rows.getObject("owner_id", UUID::class.java), rows.getObject("coffee_lot_id", UUID::class.java),

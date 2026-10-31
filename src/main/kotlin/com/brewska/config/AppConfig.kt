@@ -1,5 +1,8 @@
 package com.brewska.config
 
+import com.typesafe.config.ConfigException
+import io.ktor.server.config.ApplicationConfig
+import io.ktor.server.config.ApplicationConfigurationException
 import java.util.UUID
 
 @ConsistentCopyVisibility
@@ -10,23 +13,31 @@ data class AppConfig private constructor(
 ) {
     override fun toString(): String = "AppConfig(host=$host, port=$port, ownerId=$ownerId, poolSize=$poolSize, databaseParallelism=$databaseParallelism)"
     companion object {
-        fun fromEnvironment(environment: Map<String, String>): AppConfig {
-            fun number(name: String, fallback: Int, range: IntRange): Int {
-                val value = environment[name]?.toIntOrNull() ?: if (name in environment)
-                    throw IllegalArgumentException("$name must be an integer") else fallback
-                require(value in range) { "$name is outside its supported range" }
+        fun fromConfig(config: ApplicationConfig): AppConfig {
+            fun value(path: String): String = try {
+                config.property(path).getString()
+            } catch (_: ConfigException) {
+                throw IllegalArgumentException("$path must be configured as a scalar value")
+            } catch (_: ApplicationConfigurationException) {
+                throw IllegalArgumentException("$path must be configured as a scalar value")
+            }
+            fun number(path: String, range: IntRange): Int {
+                val value = value(path).toIntOrNull()
+                    ?: throw IllegalArgumentException("$path must be an integer")
+                require(value in range) { "$path is outside its supported range" }
                 return value
             }
-            val host = environment["HOST"] ?: "127.0.0.1"
-            require(host == "127.0.0.1") { "Only local loopback hosting is supported" }
-            val url = environment["DATABASE_URL"] ?: "jdbc:postgresql://127.0.0.1:5432/coffee_journal"
-            require(url.startsWith("jdbc:postgresql://")) { "DATABASE_URL must be a PostgreSQL JDBC URL" }
-            val user = environment["DB_USER"] ?: "coffee_journal"
-            require(user.isNotBlank()) { "DB_USER must not be blank" }
-            val owner = UUID.fromString(environment["OWNER_ID"] ?: "00000000-0000-0000-0000-000000000001")
-            return AppConfig(host, number("PORT", 8080, 1..65535), url, user,
-                environment["DB_PASSWORD"] ?: "local-coffee-journal", owner,
-                number("DB_POOL_SIZE", 4, 1..4), number("DB_PARALLELISM", 4, 1..4))
+            val host = value("ktor.deployment.host")
+            require(host == "127.0.0.1") { "ktor.deployment.host supports only local loopback hosting" }
+            val url = value("database.url")
+            require(url.startsWith("jdbc:postgresql://")) { "database.url must be a PostgreSQL JDBC URL" }
+            val user = value("database.user")
+            require(user.isNotBlank()) { "database.user must not be blank" }
+            val owner = try { UUID.fromString(value("journal.ownerId")) }
+            catch (_: IllegalArgumentException) { throw IllegalArgumentException("journal.ownerId must be a UUID") }
+            return AppConfig(host, number("ktor.deployment.port", 1..65535), url, user,
+                value("database.password"), owner, number("database.poolSize", 1..4),
+                number("database.parallelism", 1..4))
         }
     }
 }

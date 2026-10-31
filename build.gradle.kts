@@ -1,18 +1,29 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
-    kotlin("plugin.serialization") version "2.3.21"
+    kotlin("jvm") version "2.4.21"
+    kotlin("plugin.serialization") version "2.4.21"
+    id("io.ktor.plugin") version "3.6.0"
     application
 }
 repositories { mavenCentral() }
 kotlin { jvmToolchain(21) }
 application { mainClass.set("com.brewska.MainKt") }
 val ktorVersion = "3.6.0"
+ktor {
+    openApi {
+        enabled = true
+        codeInferenceEnabled = true
+        onlyCommented = false
+    }
+}
 dependencies {
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-netty:$ktorVersion")
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
+    implementation("io.ktor:ktor-server-routing-openapi:$ktorVersion")
+    implementation("io.ktor:ktor-server-swagger:$ktorVersion")
+    implementation("com.typesafe:config:1.4.9")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("com.zaxxer:HikariCP:6.3.3")

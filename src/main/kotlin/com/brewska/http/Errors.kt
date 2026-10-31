@@ -18,6 +18,7 @@ internal fun Application.installErrors() {
                 is InvalidInput -> HttpStatusCode.BadRequest to ErrorDto("INVALID_INPUT", failure.message ?: "Invalid input")
                 is NotFound -> HttpStatusCode.NotFound to ErrorDto("NOT_FOUND", "Resource not found")
                 is IdempotencyConflict -> HttpStatusCode.Conflict to ErrorDto("IDEMPOTENCY_CONFLICT", "Idempotency key was already used with different data")
+                is ResourceHasDependents -> HttpStatusCode.Conflict to ErrorDto("RESOURCE_HAS_DEPENDENTS", "Resource has dependent records")
                 is BadRequestException, is ContentTransformationException, is SerializationException ->
                     HttpStatusCode.BadRequest to ErrorDto("INVALID_INPUT", "Request body must match the JSON contract")
                 else -> {

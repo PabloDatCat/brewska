@@ -167,4 +167,57 @@ class HttpIntegrationTest {
         assertEquals(JsonArray(emptyList()), Json.parseToJsonElement(client.get("/api/coffee-lots").bodyAsText()))
     }
 
+    @Test fun `delete purchase lot and roaster removes each resource`() = testApplication {
+        install()
+        val lotId = newLot()
+        val roasterId = Json.parseToJsonElement(client.get("/api/roasters").bodyAsText()).jsonArray
+            .single().jsonObject.getValue("id").jsonPrimitive.content
+        val purchase = postJson("/api/coffee-lots/$lotId/purchases", "{\"purchasedOn\":\"2026-10-01\"}", UUID.randomUUID().toString())
+        assertEquals(HttpStatusCode.Created, purchase.status)
+        val purchaseId = purchase.objectBody().getValue("id").jsonPrimitive.content
+
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/coffee-lots/$lotId/purchases/$purchaseId").status)
+        assertEquals(JsonArray(emptyList()), Json.parseToJsonElement(client.get("/api/coffee-lots/$lotId/purchases").bodyAsText()))
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/coffee-lots/$lotId").status)
+        client.get("/api/coffee-lots/$lotId").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        assertEquals(HttpStatusCode.NoContent, client.delete("/api/roasters/$roasterId").status)
+        assertEquals(JsonArray(emptyList()), Json.parseToJsonElement(client.get("/api/roasters").bodyAsText()))
+    }
+
+    @Test fun `deleting parent resources with dependents returns conflict and preserves children`() = testApplication {
+        install()
+        val lotId = newLot()
+        val roasterId = Json.parseToJsonElement(client.get("/api/roasters").bodyAsText()).jsonArray
+            .single().jsonObject.getValue("id").jsonPrimitive.content
+        val purchase = postJson("/api/coffee-lots/$lotId/purchases", "{\"purchasedOn\":\"2026-10-01\"}", UUID.randomUUID().toString())
+        assertEquals(HttpStatusCode.Created, purchase.status)
+
+        client.delete("/api/roasters/$roasterId").expectError(HttpStatusCode.Conflict, "RESOURCE_HAS_DEPENDENTS")
+        client.delete("/api/coffee-lots/$lotId").expectError(HttpStatusCode.Conflict, "RESOURCE_HAS_DEPENDENTS")
+        assertEquals(lotId, client.get("/api/coffee-lots/$lotId").objectBody().getValue("id").jsonPrimitive.content)
+        assertEquals(1, Json.parseToJsonElement(client.get("/api/coffee-lots/$lotId/purchases").bodyAsText()).jsonArray.size)
+    }
+
+    @Test fun `delete endpoints return not found for unavailable resources and bad request for malformed UUIDs`() = testApplication {
+        install()
+        val stranger = UUID.randomUUID()
+        PostgresFixture.database.transaction { connection ->
+            connection.prepareStatement("INSERT INTO users(id) VALUES (?)").use { it.setObject(1, stranger); it.executeUpdate() }
+        }
+        val foreignCatalog = JdbcCatalog(PostgresFixture.database)
+        val foreignRoaster = foreignCatalog.createRoaster(stranger, "Foreign")
+        val foreignLot = foreignCatalog.createLot(stranger, LotInput(foreignRoaster.id))
+        val ownLot = newLot()
+
+        client.delete("/api/roasters/${foreignRoaster.id}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/roasters/${UUID.randomUUID()}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/coffee-lots/${foreignLot.id}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/coffee-lots/${UUID.randomUUID()}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/coffee-lots/$ownLot/purchases/${UUID.randomUUID()}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/coffee-lots/${foreignLot.id}/purchases/${UUID.randomUUID()}").expectError(HttpStatusCode.NotFound, "NOT_FOUND")
+        client.delete("/api/roasters/not-a-uuid").expectError(HttpStatusCode.BadRequest, "INVALID_INPUT")
+        client.delete("/api/coffee-lots/not-a-uuid").expectError(HttpStatusCode.BadRequest, "INVALID_INPUT")
+        client.delete("/api/coffee-lots/$ownLot/purchases/not-a-uuid").expectError(HttpStatusCode.BadRequest, "INVALID_INPUT")
+    }
+
 }
