@@ -2,7 +2,9 @@
 set -euo pipefail
 base_url=${BASE_URL:-http://127.0.0.1:8080}
 work_dir=$(mktemp -d)
-trap 'rm -rf "$work_dir"' EXIT
+roaster_id=
+lot_id=
+purchase_ids=()
 response_file="$work_dir/response.json"
 request() {
   local method=$1 path=$2 expected=$3 body=${4:-} key=${5:-} status
@@ -19,6 +21,41 @@ request() {
 }
 field() { python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$1"; }
 new_uuid() { python3 -c 'import uuid; print(uuid.uuid4())'; }
+cleanup_delete() {
+  local path=$1 status
+  if ! status=$(curl -sS --connect-timeout 3 --max-time 15 -X DELETE \
+      -o /dev/null -w '%{http_code}' "$base_url$path"); then
+    printf 'Cleanup failed for DELETE %s (curl error)\n' "$path" >&2
+    return 1
+  fi
+  if [[ "$status" != 204 ]]; then
+    printf 'Cleanup failed for DELETE %s (HTTP %s)\n' "$path" "$status" >&2
+    return 1
+  fi
+}
+cleanup() {
+  local original_status=$? cleanup_failed=0 purchase_id
+  trap - EXIT
+  set +e +u
+  for purchase_id in "${purchase_ids[@]}"; do
+    cleanup_delete "/api/coffee-lots/$lot_id/purchases/$purchase_id" || cleanup_failed=1
+  done
+  if [[ -n "$lot_id" ]]; then
+    cleanup_delete "/api/coffee-lots/$lot_id" || cleanup_failed=1
+  fi
+  if [[ -n "$roaster_id" ]]; then
+    cleanup_delete "/api/roasters/$roaster_id" || cleanup_failed=1
+  fi
+  rm -rf "$work_dir" || cleanup_failed=1
+  if [[ "$cleanup_failed" -ne 0 ]]; then
+    printf 'Smoke cleanup encountered errors\n' >&2
+  fi
+  if [[ "$original_status" -eq 0 && "$cleanup_failed" -ne 0 ]]; then
+    exit 1
+  fi
+  exit "$original_status"
+}
+trap cleanup EXIT
 request GET /health 200 >/dev/null
 roaster=$(request POST /api/roasters 201 '{"name":"Smoke Roaster"}')
 roaster_id=$(printf '%s' "$roaster" | field id)
@@ -27,7 +64,9 @@ lot_id=$(printf '%s' "$lot" | field id)
 path="/api/coffee-lots/$lot_id/purchases"
 key=$(new_uuid)
 first=$(request POST "$path" 201 '{"purchasedOn":"2026-10-01","roastedOn":"2026-10-03","weightGrams":250,"price":{"amount":"12.5","currency":"EUR"}}' "$key")
+purchase_ids+=("$(printf '%s' "$first" | field id)")
 second=$(request POST "$path" 201 '{"purchasedOn":"2026-10-02","weightGrams":200}' "$(new_uuid)")
+purchase_ids+=("$(printf '%s' "$second" | field id)")
 replay=$(request POST "$path" 200 '{"purchasedOn":"2026-10-01","roastedOn":"2026-10-03","weightGrams":250,"price":{"amount":"12.50","currency":"EUR"}}' "$key")
 printf '%s' "$first" > "$work_dir/first.json"
 printf '%s' "$second" > "$work_dir/second.json"
